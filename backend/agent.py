@@ -10,6 +10,8 @@ from backend.negotiation import (
     validate_offer,
 )
 
+from backend.session import NegotiationSession
+
 
 # Load environment variables
 load_dotenv()
@@ -113,9 +115,7 @@ def generate_safe_counteroffer(
     try:
         data = json.loads(content)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            "AI returned invalid JSON."
-        ) from exc
+        raise ValueError("AI returned invalid JSON.") from exc
 
     # Validate the structure of the AI response
     offer = NegotiationOffer.model_validate(data)
@@ -126,12 +126,99 @@ def generate_safe_counteroffer(
             f"Offer ${offer.amount} exceeds maximum budget ${config.max_budget}."
         )
 
-    # Check that the message contains the validated amount
-    expected_amount = f"${offer.amount:g}"
+    # Build the final message using only the validated amount
+    safe_message = (
+        f"Thank you for your response. "
+        f"I would like to offer ${offer.amount:g} "
+        f"for {config.item}. "
+        f"Would you be willing to consider this price?"
+    )
 
-    if expected_amount not in offer.message:
-        raise ValueError(
-            "Counteroffer message does not contain the validated amount."
-        )
+    return NegotiationOffer(
+        amount=offer.amount,
+        message=safe_message,
+    )
 
-    return offer
+
+# Generate a counteroffer using negotiation history
+def generate_counteroffer_with_memory(
+    session: NegotiationSession,
+    seller_message: str,
+) -> NegotiationOffer:
+
+    config = session.config
+
+    # Build negotiation history
+    history = "\n".join(
+        f"{message.role}: {message.content}"
+        for message in session.messages
+    )
+
+    response = client.chat.completions.create(
+        model=os.getenv("BASETEN_MODEL"),
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are NegotiateAI, a buyer-side negotiation agent. "
+                    "Use the negotiation history to decide your next offer. "
+                    "Your goal is to negotiate the lowest reasonable price. "
+                    "Never invent facts or promises. "
+                    "Never accept or finalize an agreement. "
+                    "Never exceed the maximum budget. "
+                    "Return ONLY valid JSON with two fields: "
+                    "'amount' (number) and 'message' (string). "
+                    "Do not include markdown or code fences."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Item: {config.item}\n"
+                    f"Opening offer: ${config.opening_offer}\n"
+                    f"Target price: ${config.target_price}\n"
+                    f"Maximum budget: ${config.max_budget}\n\n"
+                    f"Negotiation history:\n{history}\n\n"
+                    f"Latest seller message: {seller_message}\n"
+                    "Generate the next counteroffer."
+                ),
+            },
+        ],
+        max_tokens=3000,
+    )
+
+    # Extract model response
+    choice = response.choices[0]
+    content = choice.message.content
+
+    # Debug empty responses
+    if not content:
+        print("DEBUG - Finish reason:", choice.finish_reason)
+        print("DEBUG - Token usage:", response.usage)
+
+        raise ValueError("AI returned an empty response.")
+
+    # Parse JSON response
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError("AI returned invalid JSON.") from exc
+
+    # Validate AI offer
+    offer = NegotiationOffer.model_validate(data)
+
+    # Enforce maximum budget
+    if not validate_offer(offer, config):
+        raise ValueError("Counteroffer exceeds maximum budget.")
+
+    # Python constructs the final message using validated amount
+    safe_message = (
+        f"Thank you for your response. "
+        f"I would like to offer ${offer.amount:g}. "
+        f"Would you consider this price?"
+    )
+
+    return NegotiationOffer(
+        amount=offer.amount,
+        message=safe_message,
+    )
