@@ -9,7 +9,6 @@ from backend.negotiation import (
     NegotiationOffer,
     validate_offer,
 )
-
 from backend.session import NegotiationSession
 
 
@@ -54,12 +53,24 @@ def generate_offer(config: NegotiationConfig) -> str:
                 ),
             },
         ],
-        max_tokens=1000,
+        max_tokens=3000,
     )
 
-    content = response.choices[0].message.content
+    # Extract model response
+    choice = response.choices[0]
+    content = choice.message.content
 
+    # Debug empty opening offers
     if not content:
+        print(
+            "DEBUG - Opening offer finish reason:",
+            choice.finish_reason,
+        )
+        print(
+            "DEBUG - Opening offer token usage:",
+            response.usage,
+        )
+
         raise ValueError("AI returned an empty opening offer.")
 
     return content
@@ -193,8 +204,14 @@ def generate_counteroffer_with_memory(
 
     # Debug empty responses
     if not content:
-        print("DEBUG - Finish reason:", choice.finish_reason)
-        print("DEBUG - Token usage:", response.usage)
+        print(
+            "DEBUG - Counteroffer finish reason:",
+            choice.finish_reason,
+        )
+        print(
+            "DEBUG - Counteroffer token usage:",
+            response.usage,
+        )
 
         raise ValueError("AI returned an empty response.")
 
