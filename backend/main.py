@@ -2,27 +2,27 @@ import logging
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
 
-from backend.agent import generate_offer
+from backend.agent import generate_counteroffer_with_memory
 from backend.approval import ApprovalDecision, process_approval
 from backend.negotiation import (
     NegotiationConfig,
     NegotiationOffer,
     validate_offer,
 )
+from backend.outcome import detect_outcome
 from backend.session import NegotiationSession
 
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# Initialize FastAPI application
 app = FastAPI(
     title="NegotiateAI API",
     description="AI-powered negotiation assistant",
-    version="0.2.0",
+    version="0.4.0",
 )
 
 
@@ -30,7 +30,10 @@ app = FastAPI(
 sessions: dict[str, NegotiationSession] = {}
 
 
-# Health check
+class SellerResponse(BaseModel):
+    message: str = Field(min_length=1)
+
+
 @app.get("/api/v1/health")
 def health_check():
     return {
@@ -39,12 +42,10 @@ def health_check():
     }
 
 
-# Create a new negotiation session
 @app.post("/api/v1/negotiations", status_code=201)
 def create_negotiation(config: NegotiationConfig):
 
     session_id = f"neg_{uuid4().hex[:12]}"
-
     session = NegotiationSession(config=config)
 
     sessions[session_id] = session
@@ -56,7 +57,6 @@ def create_negotiation(config: NegotiationConfig):
     }
 
 
-# Get negotiation session details
 @app.get("/api/v1/negotiations/{session_id}")
 def get_negotiation(session_id: str):
 
@@ -77,12 +77,12 @@ def get_negotiation(session_id: str):
             if session.pending_offer is not None
             else None
         ),
+        "last_approved_amount": session.last_approved_amount,
         "round_number": session.round_number,
         "messages": session.get_history(),
     }
 
 
-# Generate an opening offer
 @app.post("/api/v1/negotiations/{session_id}/opening-offer")
 def create_opening_offer(session_id: str):
 
@@ -94,11 +94,10 @@ def create_opening_offer(session_id: str):
             detail="Negotiation session not found.",
         )
 
-    # Opening offer can only be generated for a new session
     if session.status != "CREATED":
         raise HTTPException(
             status_code=409,
-            detail="Opening offer is not allowed in the current session state.",
+            detail="Opening offer is not allowed in the current state.",
         )
 
     if session.pending_offer is not None or session.messages:
@@ -107,53 +106,22 @@ def create_opening_offer(session_id: str):
             detail="An opening offer already exists.",
         )
 
-    # The amount is determined by Python, not the AI
     opening_amount = session.config.opening_offer
 
-    offer = NegotiationOffer(
+    pending_offer = NegotiationOffer(
         amount=opening_amount,
         message=(
-            f"I would like to offer ${opening_amount:g} "
-            f"for {session.config.item}. "
-            "Would you consider this price?"
+            f"Hello, I am interested in {session.config.item}. "
+            f"I would like to offer ${opening_amount:g}. "
+            "Would you be willing to consider this price?"
         ),
     )
 
-    # Enforce budget limit
-    if not validate_offer(offer, session.config):
+    if not validate_offer(pending_offer, session.config):
         raise HTTPException(
             status_code=400,
             detail="Opening offer exceeds maximum budget.",
         )
-
-    # Ask AI to generate a negotiation message
-    try:
-        ai_message = generate_offer(session.config)
-
-    except Exception:
-        logger.exception(
-            "Failed to generate opening offer for session %s",
-            session_id,
-        )
-
-        raise HTTPException(
-            status_code=502,
-            detail="AI service failed to generate an opening offer.",
-        ) from None
-
-    # Keep the validated amount and construct the final message in Python.
-    # Do not use the AI's unvalidated monetary statements.
-    safe_message = (
-        f"Hello, I am interested in {session.config.item}. "
-        f"I would like to offer ${opening_amount:g}. "
-        "Would you be willing to consider this price?"
-    )
-
-    # Store proposal for human approval
-    pending_offer = NegotiationOffer(
-        amount=opening_amount,
-        message=safe_message,
-    )
 
     session.set_pending_offer(pending_offer)
 
@@ -165,7 +133,139 @@ def create_opening_offer(session_id: str):
     }
 
 
-# Human approval endpoint
+@app.post("/api/v1/negotiations/{session_id}/seller-response")
+def receive_seller_response(
+    session_id: str,
+    seller_response: SellerResponse,
+):
+
+    session = sessions.get(session_id)
+
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Negotiation session not found.",
+        )
+
+    if session.status != "ACTIVE":
+        raise HTTPException(
+            status_code=409,
+            detail="Negotiation is not active.",
+        )
+
+    if session.pending_offer is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="An offer is already waiting for approval.",
+        )
+
+    if session.last_approved_amount is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No approved buyer offer exists.",
+        )
+
+    # Detect negotiation outcome before calling the AI
+    outcome = detect_outcome(
+        seller_message=seller_response.message,
+        last_approved_amount=session.last_approved_amount,
+    )
+
+    if outcome.outcome == "ACCEPTED":
+
+        session.add_message(
+            role="seller",
+            content=seller_response.message,
+        )
+
+        session.status = "COMPLETED"
+
+        return {
+            "session_id": session_id,
+            "status": session.status,
+            "outcome": outcome.outcome,
+            "reason": outcome.reason,
+            "agreed_amount": session.last_approved_amount,
+            "message": (
+                "Seller acceptance detected and recorded locally. "
+                "No external transaction has been executed."
+            ),
+        }
+
+    if outcome.outcome == "REJECTED":
+
+        session.add_message(
+            role="seller",
+            content=seller_response.message,
+        )
+
+        session.status = "CANCELLED"
+
+        return {
+            "session_id": session_id,
+            "status": session.status,
+            "outcome": outcome.outcome,
+            "reason": outcome.reason,
+        }
+
+    if outcome.outcome == "NEEDS_CONFIRMATION":
+
+        session.add_message(
+            role="seller",
+            content=seller_response.message,
+        )
+
+        return {
+            "session_id": session_id,
+            "status": session.status,
+            "outcome": outcome.outcome,
+            "reason": outcome.reason,
+            "message": (
+                "Ask the seller to explicitly confirm the "
+                "exact price before proceeding."
+            ),
+        }
+
+    # CONTINUE: generate a new AI counteroffer
+    try:
+        counteroffer = generate_counteroffer_with_memory(
+            session=session,
+            seller_message=seller_response.message,
+        )
+
+    except Exception:
+        logger.exception(
+            "Failed to generate counteroffer for session %s",
+            session_id,
+        )
+
+        raise HTTPException(
+            status_code=502,
+            detail="AI service failed to generate a counteroffer.",
+        ) from None
+
+    if not validate_offer(counteroffer, session.config):
+        raise HTTPException(
+            status_code=400,
+            detail="Counteroffer exceeds maximum budget.",
+        )
+
+    session.add_message(
+        role="seller",
+        content=seller_response.message,
+    )
+
+    session.set_pending_offer(counteroffer)
+
+    return {
+        "session_id": session_id,
+        "status": session.status,
+        "outcome": outcome.outcome,
+        "proposed_amount": counteroffer.amount,
+        "message": counteroffer.message,
+    }
+
+
 @app.post("/api/v1/negotiations/{session_id}/approval")
 def approve_negotiation_offer(
     session_id: str,
@@ -194,7 +294,6 @@ def approve_negotiation_offer(
             detail="Pending offer not found.",
         )
 
-    # Process APPROVE / REJECT / MODIFY
     try:
         approved_offer = process_approval(
             offer=pending_offer,
@@ -208,8 +307,8 @@ def approve_negotiation_offer(
             detail=str(exc),
         ) from exc
 
-    # Reject the proposal
     if decision.action == "REJECT":
+
         session.clear_pending_offer()
 
         return {
@@ -219,30 +318,28 @@ def approve_negotiation_offer(
             "approved_offer": None,
         }
 
-    # Approved or modified offer
     if approved_offer is None:
         raise HTTPException(
             status_code=500,
             detail="Approval processing failed.",
         )
 
-    # Record the approved buyer message
-    session.add_message(
-        role="buyer",
-        content=approved_offer.message,
-    )
+    # Record the approved offer and its exact amount
+    try:
+        session.record_approved_offer(approved_offer)
 
-    session.round_number += 1
-
-    session.clear_pending_offer()
-
-    session.status = "ACTIVE"
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
 
     return {
         "session_id": session_id,
         "status": session.status,
         "decision": decision.action,
         "approved_offer": approved_offer.model_dump(),
+        "last_approved_amount": session.last_approved_amount,
         "message": (
             "Offer approved and recorded locally. "
             "It has not been sent to the seller."
