@@ -22,16 +22,20 @@ class NegotiationSession(BaseModel):
     # Number of approved buyer offers
     round_number: int = Field(default=0, ge=0)
 
-    # AI proposal waiting for human approval
+    # AI proposal waiting for approval
     pending_offer: NegotiationOffer | None = None
 
-    # Last amount explicitly approved by the buyer
-    last_approved_amount: float | None = Field(default=None, gt=0)
+    # Last approved buyer offer amount
+    last_approved_amount: float | None = Field(
+        default=None,
+        gt=0,
+    )
 
     # Current negotiation status
     status: Literal[
         "CREATED",
         "PENDING_APPROVAL",
+        "PENDING_FINAL_APPROVAL",
         "ACTIVE",
         "COMPLETED",
         "CANCELLED",
@@ -65,11 +69,23 @@ class NegotiationSession(BaseModel):
         offer: NegotiationOffer,
     ) -> None:
 
-        if self.status in ("COMPLETED", "CANCELLED"):
+        # Prevent offers in closed negotiations
+        if self.status in (
+            "COMPLETED",
+            "CANCELLED",
+            "PENDING_FINAL_APPROVAL",
+        ):
             raise ValueError(
-                "Cannot create an offer for a closed negotiation."
+                "Cannot create an offer in the current negotiation state."
             )
 
+        # Prevent exceeding maximum negotiation rounds
+        if self.round_number >= self.config.max_rounds:
+            raise ValueError(
+                "Maximum negotiation rounds reached."
+            )
+
+        # Prevent multiple pending offers
         if self.pending_offer is not None:
             raise ValueError(
                 "An offer is already waiting for approval."
@@ -102,11 +118,19 @@ class NegotiationSession(BaseModel):
                 "Pending offer not found."
             )
 
+        # Enforce maximum negotiation rounds
+        if self.round_number >= self.config.max_rounds:
+            raise ValueError(
+                "Maximum negotiation rounds reached."
+            )
+
+        # Enforce maximum budget
         if offer.amount > self.config.max_budget:
             raise ValueError(
                 "Approved offer exceeds maximum budget."
             )
 
+        # Record buyer offer
         self.add_message(
             role="buyer",
             content=offer.message,
@@ -114,8 +138,10 @@ class NegotiationSession(BaseModel):
 
         self.last_approved_amount = offer.amount
 
+        # Increase negotiation round counter
         self.round_number += 1
 
+        # Clear pending offer
         self.clear_pending_offer()
 
         self.status = "ACTIVE"

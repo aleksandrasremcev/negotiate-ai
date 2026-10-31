@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
@@ -14,6 +14,7 @@ from backend.negotiation import (
 from backend.outcome import detect_outcome
 from backend.session import NegotiationSession
 
+from typing import Literal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="NegotiateAI API",
     description="AI-powered negotiation assistant",
-    version="0.4.0",
+    version="0.5.0",
 )
 
 
@@ -32,6 +33,50 @@ sessions: dict[str, NegotiationSession] = {}
 
 class SellerResponse(BaseModel):
     message: str = Field(min_length=1)
+    
+class FinalApprovalDecision(BaseModel):
+    action: Literal["CONFIRM", "REJECT"]
+
+
+def record_offer(
+    session: NegotiationSession,
+    offer: NegotiationOffer,
+) -> None:
+    """
+    Record an offer according to the negotiation mode.
+
+    MANUAL:
+        Wait for human approval.
+
+    AUTONOMOUS:
+        Automatically approve an offer within configured limits.
+
+    This function does not send messages to sellers.
+    """
+
+    if session.round_number >= session.config.max_rounds:
+        raise HTTPException(
+            status_code=409,
+            detail="Maximum negotiation rounds reached.",
+        )
+
+    if not validate_offer(offer, session.config):
+        raise HTTPException(
+            status_code=400,
+            detail="Offer exceeds maximum budget.",
+        )
+
+    try:
+        session.set_pending_offer(offer)
+
+        if session.config.mode == "AUTONOMOUS":
+            session.record_approved_offer(offer)
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=str(exc),
+        ) from exc
 
 
 @app.get("/api/v1/health")
@@ -108,7 +153,7 @@ def create_opening_offer(session_id: str):
 
     opening_amount = session.config.opening_offer
 
-    pending_offer = NegotiationOffer(
+    opening_offer = NegotiationOffer(
         amount=opening_amount,
         message=(
             f"Hello, I am interested in {session.config.item}. "
@@ -117,19 +162,16 @@ def create_opening_offer(session_id: str):
         ),
     )
 
-    if not validate_offer(pending_offer, session.config):
-        raise HTTPException(
-            status_code=400,
-            detail="Opening offer exceeds maximum budget.",
-        )
-
-    session.set_pending_offer(pending_offer)
+    record_offer(
+        session=session,
+        offer=opening_offer,
+    )
 
     return {
         "session_id": session_id,
         "status": session.status,
-        "proposed_amount": pending_offer.amount,
-        "message": pending_offer.message,
+        "proposed_amount": opening_offer.amount,
+        "message": opening_offer.message,
     }
 
 
@@ -165,7 +207,7 @@ def receive_seller_response(
             detail="No approved buyer offer exists.",
         )
 
-    # Detect negotiation outcome before calling the AI
+    # Detect seller acceptance or rejection before calling AI
     outcome = detect_outcome(
         seller_message=seller_response.message,
         last_approved_amount=session.last_approved_amount,
@@ -178,7 +220,7 @@ def receive_seller_response(
             content=seller_response.message,
         )
 
-        session.status = "COMPLETED"
+        session.status = "PENDING_FINAL_APPROVAL"
 
         return {
             "session_id": session_id,
@@ -226,7 +268,28 @@ def receive_seller_response(
             ),
         }
 
-    # CONTINUE: generate a new AI counteroffer
+    # Stop before generating another offer if round limit reached
+    if session.round_number >= session.config.max_rounds:
+
+        session.add_message(
+            role="seller",
+            content=seller_response.message,
+        )
+
+        session.status = "CANCELLED"
+
+        return {
+            "session_id": session_id,
+            "status": session.status,
+            "outcome": "MAX_ROUNDS_REACHED",
+            "reason": "Maximum negotiation rounds reached.",
+            "message": (
+                "Negotiation stopped because the maximum number "
+                "of buyer offers has been reached."
+            ),
+        }
+
+    # CONTINUE: generate AI counteroffer
     try:
         counteroffer = generate_counteroffer_with_memory(
             session=session,
@@ -255,7 +318,10 @@ def receive_seller_response(
         content=seller_response.message,
     )
 
-    session.set_pending_offer(counteroffer)
+    record_offer(
+        session=session,
+        offer=counteroffer,
+    )
 
     return {
         "session_id": session_id,
@@ -324,7 +390,6 @@ def approve_negotiation_offer(
             detail="Approval processing failed.",
         )
 
-    # Record the approved offer and its exact amount
     try:
         session.record_approved_offer(approved_offer)
 
@@ -344,4 +409,44 @@ def approve_negotiation_offer(
             "Offer approved and recorded locally. "
             "It has not been sent to the seller."
         ),
+    }
+
+@app.post("/api/v1/negotiations/{session_id}/final-approval")
+def final_approval(
+    session_id: str,
+    decision: FinalApprovalDecision,
+):
+    session = sessions.get(session_id)
+
+    if session is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Negotiation session not found.",
+        )
+
+    if session.status != "PENDING_FINAL_APPROVAL":
+        raise HTTPException(
+            status_code=409,
+            detail="Negotiation is not waiting for final approval.",
+        )
+
+    if session.last_approved_amount is None:
+        raise HTTPException(
+            status_code=409,
+            detail="No agreed amount available for confirmation.",
+        )
+
+    if decision.action == "CONFIRM":
+        session.status = "COMPLETED"
+        message = "Agreement confirmed locally. No transaction executed."
+    else:
+        session.status = "CANCELLED"
+        message = "Agreement rejected by buyer. No transaction executed."
+
+    return {
+        "session_id": session_id,
+        "status": session.status,
+        "decision": decision.action,
+        "agreed_amount": session.last_approved_amount,
+        "message": message,
     }

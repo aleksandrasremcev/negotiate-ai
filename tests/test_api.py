@@ -105,7 +105,7 @@ def test_seller_accepts_approved_offer():
 
     result = response.json()
 
-    assert result["status"] == "COMPLETED"
+    assert result["status"] == "PENDING_FINAL_APPROVAL"
     assert result["outcome"] == "ACCEPTED"
     assert result["agreed_amount"] == 300
 

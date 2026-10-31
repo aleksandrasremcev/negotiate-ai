@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -6,6 +8,12 @@ class NegotiationConfig(BaseModel):
     target_price: float = Field(gt=0)
     max_budget: float = Field(gt=0)
     opening_offer: float = Field(gt=0)
+
+    # Negotiation mode
+    mode: Literal["MANUAL", "AUTONOMOUS"] = "MANUAL"
+
+    # Maximum number of buyer offers
+    max_rounds: int = Field(default=5, ge=1, le=20)
 
     @model_validator(mode="after")
     def validate_budget(self):
