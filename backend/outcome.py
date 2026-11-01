@@ -1,3 +1,4 @@
+
 import re
 from typing import Literal
 
@@ -17,6 +18,20 @@ class OutcomeResult(BaseModel):
     reason: str
 
 
+def _contains_phrase(message: str, phrase: str) -> bool:
+    pattern = rf"(?<!\w){re.escape(phrase)}(?!\w)"
+    return bool(re.search(pattern, message))
+
+def _extract_prices(message: str) -> list[float]:
+    pattern = r"\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)"
+
+    matches = re.findall(pattern, message)
+
+    return [
+        float(value.replace(",", ""))
+        for value in matches
+    ]
+
 def detect_outcome(
     seller_message: str,
     last_approved_amount: float,
@@ -25,22 +40,31 @@ def detect_outcome(
     message = " ".join(seller_message.lower().split())
     message = message.replace("’", "'")
 
-    # 1. Detect explicit termination of negotiations
-    rejection_phrases = [
+    prices = _extract_prices(message)
+
+    # 1. Explicit termination
+    termination_phrases = [
         "i am no longer interested",
         "i don't want to negotiate",
+        "i do not want to negotiate",
         "the deal is off",
         "no deal",
         "i'm ending the negotiation",
+        "i am ending the negotiation",
+        "i won't negotiate",
+        "i will not negotiate",
     ]
 
-    if any(phrase in message for phrase in rejection_phrases):
+    if any(
+        _contains_phrase(message, phrase)
+        for phrase in termination_phrases
+    ):
         return OutcomeResult(
             outcome="REJECTED",
-            reason="Seller ended the negotiation.",
+            reason="Seller explicitly ended negotiations.",
         )
 
-    # 2. Detect explicit refusal of an offer
+    # 2. Explicit refusal of the current offer
     refusal_phrases = [
         "i do not accept",
         "i don't accept",
@@ -55,13 +79,70 @@ def detect_outcome(
         "not accepted",
     ]
 
-    if any(phrase in message for phrase in refusal_phrases):
+    has_refusal = any(
+        _contains_phrase(message, phrase)
+        for phrase in refusal_phrases
+    )
+
+    # 3. Detect firm final price above current offer
+    final_price_phrases = [
+        "my final price",
+        "my absolute minimum",
+        "my lowest price",
+        "my firm price",
+        "non-negotiable",
+        "not negotiable",
+        "will not go any lower",
+        "won't go any lower",
+    ]
+
+    has_firm_price = any(
+        _contains_phrase(message, phrase)
+        for phrase in final_price_phrases
+    )
+
+    if has_firm_price and prices:
+        if min(prices) > last_approved_amount:
+            return OutcomeResult(
+                outcome="NEEDS_CONFIRMATION",
+                reason=(
+                    "Seller stated a firm price above the current "
+                    "offer. Buyer should review before continuing."
+                ),
+            )
+
+    # 4. Detect seller asking to wait
+    waiting_phrases = [
+        "let me check",
+        "let me think",
+        "i need to check",
+        "i need to think",
+        "i'll get back to you",
+        "i will get back to you",
+        "give me some time",
+        "not ready to decide",
+        "i need more time",
+        "i'll confirm later",
+        "i will confirm later",
+    ]
+
+    if any(
+        _contains_phrase(message, phrase)
+        for phrase in waiting_phrases
+    ):
         return OutcomeResult(
-            outcome="CONTINUE",
-            reason="Seller did not accept the current offer.",
+            outcome="NEEDS_CONFIRMATION",
+            reason="Seller has not made a final decision.",
         )
 
-    # 3. Detect possible acceptance
+    # 5. Explicit refusal without termination
+    if has_refusal:
+        return OutcomeResult(
+            outcome="CONTINUE",
+            reason="Seller refused the current offer.",
+        )
+
+    # 6. Detect acceptance
     acceptance_phrases = [
         "i accept",
         "i agree",
@@ -71,7 +152,7 @@ def detect_outcome(
     ]
 
     has_acceptance = any(
-        phrase in message
+        _contains_phrase(message, phrase)
         for phrase in acceptance_phrases
     )
 
@@ -81,29 +162,7 @@ def detect_outcome(
             reason="No explicit acceptance detected.",
         )
 
-    # 4. Extract prices written with a dollar sign
-    price_matches = re.findall(
-        r"\$\s*(\d+(?:\.\d{1,2})?)\b",
-        message,
-    )
-
-    prices = [float(price) for price in price_matches]
-
-    if not prices:
-        return OutcomeResult(
-            outcome="NEEDS_CONFIRMATION",
-            reason="Seller accepted without confirming the exact price.",
-        )
-
-    if len(prices) != 1:
-        return OutcomeResult(
-            outcome="NEEDS_CONFIRMATION",
-            reason="Multiple prices mentioned in seller response.",
-        )
-
-    accepted_price = prices[0]
-
-    # 5. Detect conditional acceptance
+    # 7. Conditions requiring human confirmation
     conditional_phrases = [
         "but only if",
         "only if",
@@ -125,13 +184,15 @@ def detect_outcome(
         "extra charge",
     ]
 
-    if any(phrase in message for phrase in conditional_phrases):
+    if any(
+        _contains_phrase(message, phrase)
+        for phrase in conditional_phrases
+    ):
         return OutcomeResult(
             outcome="NEEDS_CONFIRMATION",
-            reason="Seller acceptance includes additional conditions.",
+            reason="Seller acceptance contains additional conditions.",
         )
 
-    # 6. Detect conflicting or ambiguous acceptance
     ambiguous_phrases = [
         "but",
         "however",
@@ -146,22 +207,30 @@ def detect_outcome(
     ]
 
     if any(
-        re.search(rf"\b{re.escape(phrase)}\b", message)
+        _contains_phrase(message, phrase)
         for phrase in ambiguous_phrases
     ):
         return OutcomeResult(
             outcome="NEEDS_CONFIRMATION",
-            reason="Seller acceptance contains ambiguous terms.",
+            reason="Seller acceptance is ambiguous.",
         )
 
-    # 7. Check whether seller accepted the approved amount
+    # 8. Require one explicit price
+    if len(prices) != 1:
+        return OutcomeResult(
+            outcome="NEEDS_CONFIRMATION",
+            reason="Seller must confirm one exact price.",
+        )
+
+    accepted_price = prices[0]
+
+    # 9. Compare with approved buyer offer
     if abs(accepted_price - last_approved_amount) < 0.001:
         return OutcomeResult(
             outcome="ACCEPTED",
-            reason="Seller explicitly accepted the last approved offer.",
+            reason="Seller explicitly accepted the approved offer.",
         )
 
-    # 8. Different price: negotiations must continue
     return OutcomeResult(
         outcome="CONTINUE",
         reason="Seller proposed a different price.",
