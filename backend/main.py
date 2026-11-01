@@ -1,4 +1,7 @@
-﻿import logging
+﻿
+import logging
+import re
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
@@ -14,7 +17,6 @@ from backend.negotiation import (
 from backend.outcome import detect_outcome
 from backend.session import NegotiationSession
 
-from typing import Literal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,9 +35,43 @@ sessions: dict[str, NegotiationSession] = {}
 
 class SellerResponse(BaseModel):
     message: str = Field(min_length=1)
-    
+
+
 class FinalApprovalDecision(BaseModel):
     action: Literal["CONFIRM", "REJECT"]
+
+
+def seller_final_price(message: str) -> float | None:
+    """
+    Detect an explicitly stated final seller price in USD.
+
+    Return None when the price is not clearly identifiable.
+    """
+
+    text = message.lower()
+
+    final_phrases = (
+        "final price",
+        "final offer",
+        "lowest price",
+        "lowest i can go",
+        "non-negotiable",
+        "firm price",
+        "price is firm",
+    )
+
+    if not any(phrase in text for phrase in final_phrases):
+        return None
+
+    matches = re.findall(
+        r"\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)",
+        text,
+    )
+
+    if len(matches) != 1:
+        return None
+
+    return float(matches[0].replace(",", ""))
 
 
 def record_offer(
@@ -43,15 +79,15 @@ def record_offer(
     offer: NegotiationOffer,
 ) -> None:
     """
-    Record an offer according to the negotiation mode.
+    Record an offer according to negotiation mode.
 
     MANUAL:
         Wait for human approval.
 
     AUTONOMOUS:
-        Automatically approve an offer within configured limits.
+        Automatically approve within configured limits.
 
-    This function does not send messages to sellers.
+    No messages are sent to external sellers.
     """
 
     if session.round_number >= session.config.max_rounds:
@@ -213,6 +249,7 @@ def receive_seller_response(
         last_approved_amount=session.last_approved_amount,
     )
 
+    # Seller explicitly accepted buyer's approved offer
     if outcome.outcome == "ACCEPTED":
 
         session.add_message(
@@ -234,6 +271,7 @@ def receive_seller_response(
             ),
         }
 
+    # Seller explicitly rejected negotiation
     if outcome.outcome == "REJECTED":
 
         session.add_message(
@@ -250,6 +288,36 @@ def receive_seller_response(
             "reason": outcome.reason,
         }
 
+    # Check seller's final price before requesting clarification
+    final_price = seller_final_price(seller_response.message)
+
+    if (
+        final_price is not None
+        and final_price > session.config.max_budget
+    ):
+
+        session.add_message(
+            role="seller",
+            content=seller_response.message,
+        )
+
+        session.status = "CANCELLED"
+
+        return {
+            "session_id": session_id,
+            "status": session.status,
+            "outcome": "BUDGET_LIMIT_REACHED",
+            "reason": (
+                "Seller's final price exceeds "
+                "the buyer's maximum budget."
+            ),
+            "message": (
+                "Negotiation stopped because the seller's "
+                "final price exceeds your maximum budget."
+            ),
+        }
+
+    # Ambiguous seller response: request clarification
     if outcome.outcome == "NEEDS_CONFIRMATION":
 
         session.add_message(
@@ -268,7 +336,7 @@ def receive_seller_response(
             ),
         }
 
-    # Stop before generating another offer if round limit reached
+    # Stop if maximum negotiation rounds reached
     if session.round_number >= session.config.max_rounds:
 
         session.add_message(
@@ -289,12 +357,44 @@ def receive_seller_response(
             ),
         }
 
-    # CONTINUE: generate AI counteroffer
+    # Generate AI counteroffer
     try:
         counteroffer = generate_counteroffer_with_memory(
             session=session,
             seller_message=seller_response.message,
         )
+
+    except ValueError as exc:
+        if "repeated offer after retry" not in str(exc):
+            logger.exception(
+                "Invalid AI counteroffer for session %s",
+                session_id,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="AI service failed to generate a valid counteroffer.",
+            ) from exc
+
+        logger.warning(
+            "AI repeated an offer twice for session %s",
+            session_id,
+        )
+
+        session.add_message(
+            role="seller",
+            content=seller_response.message,
+        )
+
+        return {
+            "session_id": session_id,
+            "status": session.status,
+            "outcome": "REPEATED_OFFER",
+            "reason": "AI could not generate a different valid offer.",
+            "message": (
+                "No new offer was proposed. Review the seller's response "
+                "and decide whether to continue or stop negotiating."
+            ),
+        }
 
     except Exception:
         logger.exception(
@@ -307,6 +407,7 @@ def receive_seller_response(
             detail="AI service failed to generate a counteroffer.",
         ) from None
 
+    # Validate counteroffer against buyer's budget
     if not validate_offer(counteroffer, session.config):
         raise HTTPException(
             status_code=400,
@@ -411,11 +512,13 @@ def approve_negotiation_offer(
         ),
     }
 
+
 @app.post("/api/v1/negotiations/{session_id}/final-approval")
 def final_approval(
     session_id: str,
     decision: FinalApprovalDecision,
 ):
+
     session = sessions.get(session_id)
 
     if session is None:
@@ -438,10 +541,16 @@ def final_approval(
 
     if decision.action == "CONFIRM":
         session.status = "COMPLETED"
-        message = "Agreement confirmed locally. No transaction executed."
+        message = (
+            "Agreement confirmed locally. "
+            "No transaction executed."
+        )
     else:
         session.status = "CANCELLED"
-        message = "Agreement rejected by buyer. No transaction executed."
+        message = (
+            "Agreement rejected by buyer. "
+            "No transaction executed."
+        )
 
     return {
         "session_id": session_id,
