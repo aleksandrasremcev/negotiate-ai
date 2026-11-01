@@ -1,3 +1,4 @@
+
 import { useRef, useState, type FormEvent } from 'react'
 import './App.css'
 
@@ -88,7 +89,8 @@ function App() {
 
   const [roundNumber, setRoundNumber] = useState(0)
 
-  const [pendingOffer, setPendingOffer] = useState<Offer | null>(null)
+  const [pendingOffer, setPendingOffer] =
+    useState<Offer | null>(null)
 
   const [lastApprovedAmount, setLastApprovedAmount] =
     useState<number | null>(null)
@@ -634,142 +636,572 @@ function App() {
     .find((message) => message.role === 'buyer')
 
   return (
-    <main>
-      <h1>NegotiateAI</h1>
+    <main className="dashboard">
+      <header className="dashboard-header">
+        <div className="brand">
+          <div className="brand-icon">N</div>
 
-      <p>Your AI-powered negotiation assistant</p>
+          <div>
+            <h1>NegotiateAI</h1>
+            <p>Your AI-powered negotiation workspace</p>
+          </div>
+        </div>
 
-      <h2>Start a Negotiation</h2>
+        <span className="header-tag">
+          AI Negotiation Assistant
+        </span>
+      </header>
 
-      <form onSubmit={startNegotiation}>
-        <label htmlFor="item">
-          What are you negotiating?
-        </label>
+      <div className="dashboard-grid">
+        <section className="dashboard-card setup-card">
+          <div className="card-heading">
+            <div>
+              <span className="eyebrow">GET STARTED</span>
+              <h2>Negotiation Setup</h2>
+            </div>
+          </div>
 
-        <input
-          id="item"
-          value={item}
-          onChange={(event) =>
-            setItem(event.target.value)
-          }
-          placeholder="e.g. Used MacBook Pro"
-          required
-        />
+          <p className="card-description">
+            Define your goals and let AI help you negotiate
+            within your limits.
+          </p>
 
-        <label htmlFor="targetPrice">
-          Target price ($)
-        </label>
+          <form
+            className="setup-form"
+            onSubmit={startNegotiation}
+          >
+            <div className="field">
+              <label htmlFor="item">
+                What are you negotiating?
+              </label>
 
-        <input
-          id="targetPrice"
-          type="number"
-          min="0.01"
-          step="0.01"
-          value={targetPrice}
-          onChange={(event) =>
-            setTargetPrice(event.target.value)
-          }
-          required
-        />
+              <input
+                id="item"
+                value={item}
+                onChange={(event) =>
+                  setItem(event.target.value)
+                }
+                placeholder="e.g. Used MacBook Pro"
+                required
+              />
+            </div>
 
-        <label htmlFor="maxBudget">
-          Maximum budget ($)
-        </label>
+            <div className="field-grid">
+              <div className="field">
+                <label htmlFor="targetPrice">
+                  Target Price ($)
+                </label>
 
-        <input
-          id="maxBudget"
-          type="number"
-          min="0.01"
-          step="0.01"
-          value={maxBudget}
-          onChange={(event) =>
-            setMaxBudget(event.target.value)
-          }
-          required
-        />
+                <input
+                  id="targetPrice"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={targetPrice}
+                  onChange={(event) =>
+                    setTargetPrice(event.target.value)
+                  }
+                  placeholder="400"
+                  required
+                />
+              </div>
 
-        <label htmlFor="openingOffer">
-          Opening offer ($)
-        </label>
+              <div className="field">
+                <label htmlFor="maxBudget">
+                  Maximum Budget ($)
+                </label>
 
-        <input
-          id="openingOffer"
-          type="number"
-          min="0.01"
-          step="0.01"
-          value={openingOffer}
-          onChange={(event) =>
-            setOpeningOffer(event.target.value)
-          }
-          required
-        />
+                <input
+                  id="maxBudget"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={maxBudget}
+                  onChange={(event) =>
+                    setMaxBudget(event.target.value)
+                  }
+                  placeholder="500"
+                  required
+                />
+              </div>
+            </div>
 
-        <label htmlFor="mode">
-          Negotiation Mode
-        </label>
+            <div className="field-grid">
+              <div className="field">
+                <label htmlFor="openingOffer">
+                  Opening Offer ($)
+                </label>
 
-        <select
-          id="mode"
-          value={mode}
-          onChange={(event) =>
-            setMode(
-              event.target.value as NegotiationMode
-            )
-          }
-        >
-          <option value="MANUAL">
-            Manual — approve every offer
-          </option>
+                <input
+                  id="openingOffer"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={openingOffer}
+                  onChange={(event) =>
+                    setOpeningOffer(event.target.value)
+                  }
+                  placeholder="300"
+                  required
+                />
+              </div>
 
-          <option value="AUTONOMOUS">
-            Autonomous — AI approves offers within limits
-          </option>
-        </select>
+              <div className="field">
+                <label htmlFor="maxRounds">
+                  Maximum Rounds
+                </label>
 
-        <label htmlFor="maxRounds">
-          Maximum Negotiation Rounds
-        </label>
+                <input
+                  id="maxRounds"
+                  type="number"
+                  min="1"
+                  max="20"
+                  step="1"
+                  value={maxRounds}
+                  onChange={(event) =>
+                    setMaxRounds(event.target.value)
+                  }
+                  required
+                />
+              </div>
+            </div>
 
-        <input
-          id="maxRounds"
-          type="number"
-          min="1"
-          max="20"
-          step="1"
-          value={maxRounds}
-          onChange={(event) =>
-            setMaxRounds(event.target.value)
-          }
-          required
-        />
+            <div className="field">
+              <label htmlFor="mode">
+                Negotiation Mode
+              </label>
 
-        <p>
-          Autonomous mode automatically approves AI offers
-          within your budget and round limits.
-          Offers are not sent to sellers automatically.
-          Final buyer approval is always required.
-        </p>
+              <select
+                id="mode"
+                value={mode}
+                onChange={(event) =>
+                  setMode(
+                    event.target.value as NegotiationMode
+                  )
+                }
+              >
+                <option value="MANUAL">
+                  Manual - approve every offer
+                </option>
 
-        <button
-          type="submit"
-          disabled={loading}
-        >
-          {loading
-            ? 'Creating...'
-            : 'Start Negotiation'}
-        </button>
-      </form>
+                <option value="AUTONOMOUS">
+                  Autonomous - AI approves within limits
+                </option>
+              </select>
+            </div>
+
+            <div className="info-note">
+              AI offers stay within your budget and round limits.
+              Offers are not sent to sellers automatically.
+              Final buyer approval is always required.
+            </div>
+
+            <button
+              className="primary-button full-width"
+              type="submit"
+              disabled={loading}
+            >
+              {loading
+                ? 'Creating Negotiation...'
+                : 'Start Negotiation'}
+            </button>
+          </form>
+        </section>
+
+        <section className="dashboard-card workspace-card">
+          <div className="card-heading">
+            <div>
+              <span className="eyebrow">
+                AI WORKSPACE
+              </span>
+
+              <h2>Negotiation Workspace</h2>
+            </div>
+
+            <span
+              className={`status-badge ${
+                status ? status.toLowerCase() : 'idle'
+              }`}
+            >
+              {status
+                ? status.replaceAll('_', ' ')
+                : 'READY'}
+            </span>
+          </div>
+
+          {!sessionId ? (
+            <div className="empty-workspace">
+              <div className="empty-icon">✦</div>
+
+              <h3>Ready to negotiate?</h3>
+
+              <p>
+                Configure your negotiation on the left
+                and start a session to see AI-powered
+                offers here.
+              </p>
+
+              <div className="empty-steps">
+                <span>1. Set your limits</span>
+                <span>2. Generate an offer</span>
+                <span>3. Negotiate with AI</span>
+              </div>
+            </div>
+          ) : (
+            <div className="session-content">
+              <div className="session-summary">
+                <div className="summary-item">
+                  <span>Negotiation Mode</span>
+                  <strong>{activeMode}</strong>
+                </div>
+
+                <div className="summary-item">
+                  <span>Buyer Offers</span>
+                  <strong>
+                    {roundNumber} /{' '}
+                    {sessionConfig?.max_rounds ?? 0}
+                  </strong>
+                </div>
+
+                <div className="summary-item">
+                  <span>Maximum Budget</span>
+
+                  <strong>
+                    {sessionConfig
+                      ? formatPrice(
+                          sessionConfig.max_budget
+                        )
+                      : '-'}
+                  </strong>
+                </div>
+              </div>
+
+              <p className="session-id">
+                Session: {sessionId}
+              </p>
+
+              {status === 'CREATED' &&
+                !pendingOffer && (
+                  <div className="action-panel">
+                    <h3>Your negotiation is ready</h3>
+
+                    <p>
+                      Generate your opening offer to begin.
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={generateOpeningOffer}
+                      disabled={offerLoading}
+                    >
+                      {offerLoading
+                        ? 'Generating...'
+                        : 'Generate Opening Offer'}
+                    </button>
+                  </div>
+                )}
+
+              {status === 'PENDING_APPROVAL' &&
+                pendingOffer && (
+                  <div className="action-panel">
+                    <span className="eyebrow">
+                      YOUR APPROVAL REQUIRED
+                    </span>
+
+                    <h3>Review AI Offer</h3>
+
+                    <div className="offer-amount">
+                      {formatPrice(
+                        pendingOffer.amount
+                      )}
+                    </div>
+
+                    <div className="message-box">
+                      {pendingOffer.message}
+                    </div>
+
+                    <div className="button-row">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          submitApproval('APPROVE')
+                        }
+                        disabled={approvalLoading}
+                      >
+                        Approve
+                      </button>
+
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => {
+                          setShowModify(!showModify)
+                          setModifiedAmount(
+                            String(pendingOffer.amount)
+                          )
+                          setError('')
+                        }}
+                        disabled={approvalLoading}
+                      >
+                        Modify
+                      </button>
+
+                      <button
+                        type="button"
+                        className="danger-button"
+                        onClick={() =>
+                          submitApproval('REJECT')
+                        }
+                        disabled={approvalLoading}
+                      >
+                        Reject
+                      </button>
+                    </div>
+
+                    {showModify && (
+                      <div className="modify-panel">
+                        <label htmlFor="modifiedAmount">
+                          New Offer Amount ($)
+                        </label>
+
+                        <input
+                          id="modifiedAmount"
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          max={
+                            sessionConfig?.max_budget ??
+                            maxBudget
+                          }
+                          value={modifiedAmount}
+                          onChange={(event) =>
+                            setModifiedAmount(
+                              event.target.value
+                            )
+                          }
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            submitApproval('MODIFY')
+                          }
+                          disabled={approvalLoading}
+                        >
+                          {approvalLoading
+                            ? 'Processing...'
+                            : 'Confirm Modified Offer'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              {status === 'ACTIVE' && (
+                <div className="action-panel">
+                  <span className="eyebrow">
+                    NEGOTIATION IN PROGRESS
+                  </span>
+
+                  <h3>Active Negotiation</h3>
+
+                  {activeMode === 'AUTONOMOUS' && (
+                    <div className="info-note">
+                      Autonomous mode is active.
+                      AI offers are approved automatically
+                      within your limits. You still
+                      communicate with the seller manually.
+                    </div>
+                  )}
+
+                  {lastApprovedAmount !== null && (
+                    <div className="approved-offer">
+                      <span>
+                        Last Approved Offer
+                      </span>
+
+                      <strong>
+                        {formatPrice(
+                          lastApprovedAmount
+                        )}
+                      </strong>
+                    </div>
+                  )}
+
+                  {latestBuyerMessage && (
+                    <div className="message-box">
+                      <h4>
+                        Approved Buyer Message
+                      </h4>
+
+                      <p>
+                        {latestBuyerMessage.content}
+                      </p>
+                    </div>
+                  )}
+
+                  <p className="helper-text">
+                    Share the approved message with
+                    the seller, then paste their
+                    response below.
+                  </p>
+
+                  <div className="field">
+                    <label htmlFor="sellerMessage">
+                      Seller's Response
+                    </label>
+
+                    <textarea
+                      id="sellerMessage"
+                      rows={4}
+                      value={sellerMessage}
+                      onChange={(event) =>
+                        setSellerMessage(
+                          event.target.value
+                        )
+                      }
+                      placeholder="Enter the seller's message..."
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={submitSellerResponse}
+                    disabled={
+                      sellerLoading ||
+                      !sellerMessage.trim()
+                    }
+                  >
+                    {sellerLoading
+                      ? 'Processing Seller Response...'
+                      : 'Process Seller Response'}
+                  </button>
+
+                  {sellerOutcome?.outcome ===
+                    'NEEDS_CONFIRMATION' && (
+                    <div className="info-note">
+                      <strong>
+                        Clarification Required
+                      </strong>
+
+                      <p>
+                        {sellerOutcome.message ||
+                          'Ask the seller to confirm the exact price.'}
+                      </p>
+
+                      {sellerOutcome.reason && (
+                        <p>
+                          {sellerOutcome.reason}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {status ===
+                'PENDING_FINAL_APPROVAL' && (
+                <div className="action-panel">
+                  <span className="eyebrow">
+                    FINAL DECISION
+                  </span>
+
+                  <h3>Final Buyer Approval</h3>
+
+                  <p>
+                    The seller accepted your offer.
+                    Review the agreed amount before
+                    confirming.
+                  </p>
+
+                  {lastApprovedAmount !== null && (
+                    <div className="offer-amount">
+                      {formatPrice(
+                        lastApprovedAmount
+                      )}
+                    </div>
+                  )}
+
+                  <div className="info-note">
+                    Confirming records the agreement
+                    locally. No payment, purchase,
+                    or external transaction will
+                    be executed.
+                  </div>
+
+                  <div className="button-row">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        submitFinalApproval('CONFIRM')
+                      }
+                      disabled={finalApprovalLoading}
+                    >
+                      {finalApprovalLoading
+                        ? 'Processing...'
+                        : 'Confirm Agreement'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="danger-button"
+                      onClick={() =>
+                        submitFinalApproval('REJECT')
+                      }
+                      disabled={finalApprovalLoading}
+                    >
+                      Reject Agreement
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {status === 'COMPLETED' && (
+                <div className="result-panel">
+                  <h3>
+                    ✓ Negotiation Completed
+                  </h3>
+
+                  <p>
+                    The buyer confirmed the agreement.
+                  </p>
+
+                  {lastApprovedAmount !== null && (
+                    <div className="offer-amount">
+                      {formatPrice(
+                        lastApprovedAmount
+                      )}
+                    </div>
+                  )}
+
+                  <p>
+                    Recorded locally. No payment
+                    or external transaction
+                    was executed.
+                  </p>
+                </div>
+              )}
+
+              {status === 'CANCELLED' && (
+                <div className="action-panel">
+                  <h3>
+                    Negotiation Cancelled
+                  </h3>
+
+                  <p>
+                    The negotiation has ended.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      </div>
 
       {error && (
         <div
+          className="feedback-error"
           role="alert"
-          style={{
-            color: '#991b1b',
-            background: '#fee2e2',
-            padding: '12px',
-            marginTop: '16px',
-            borderRadius: '8px',
-          }}
         >
           <strong>Error:</strong> {error}
         </div>
@@ -777,362 +1209,49 @@ function App() {
 
       {success && (
         <div
+          className="feedback-success"
           role="status"
-          style={{
-            color: '#166534',
-            background: '#dcfce7',
-            padding: '12px',
-            marginTop: '16px',
-            borderRadius: '8px',
-          }}
         >
           {success}
         </div>
       )}
 
-      {sessionId && (
-        <section>
-          <h2>Negotiation Session</h2>
+      <section className="dashboard-card history-card">
+        <div className="card-heading">
+          <div>
+            <span className="eyebrow">
+              ACTIVITY LOG
+            </span>
 
-          <p>
-            <strong>Session ID:</strong> {sessionId}
+            <h2>Negotiation History</h2>
+          </div>
+
+          <span className="history-count">
+            {history.length} messages
+          </span>
+        </div>
+
+        {history.length === 0 ? (
+          <p className="history-empty">
+            Your negotiation history will
+            appear here once the conversation begins.
           </p>
-
-          <p>
-            <strong>Mode:</strong> {activeMode}
-          </p>
-
-          <p>
-            <strong>Status:</strong> {status}
-          </p>
-
-          <p>
-            <strong>Buyer offers:</strong> {roundNumber}
-            {sessionConfig
-              ? ` / ${sessionConfig.max_rounds}`
-              : ''}
-          </p>
-
-          {sessionConfig && (
-            <p>
-              <strong>Maximum budget:</strong>{' '}
-              {formatPrice(sessionConfig.max_budget)}
-            </p>
-          )}
-
-          {status === 'CREATED' && !pendingOffer && (
-            <button
-              type="button"
-              onClick={generateOpeningOffer}
-              disabled={offerLoading}
-            >
-              {offerLoading
-                ? 'Generating...'
-                : 'Generate Opening Offer'}
-            </button>
-          )}
-
-          {status === 'PENDING_APPROVAL' &&
-            pendingOffer && (
-              <div>
-                <h3>Offer Awaiting Your Approval</h3>
-
-                <p>
-                  <strong>Amount:</strong>{' '}
-                  {formatPrice(pendingOffer.amount)}
-                </p>
-
-                <p>
-                  <strong>Message:</strong>{' '}
-                  {pendingOffer.message}
-                </p>
-
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: '10px',
-                    flexWrap: 'wrap',
-                    marginTop: '16px',
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() =>
-                      submitApproval('APPROVE')
-                    }
-                    disabled={approvalLoading}
-                  >
-                    Approve
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      submitApproval('REJECT')
-                    }
-                    disabled={approvalLoading}
-                  >
-                    Reject
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowModify(!showModify)
-                      setModifiedAmount(
-                        String(pendingOffer.amount)
-                      )
-                      setError('')
-                    }}
-                    disabled={approvalLoading}
-                  >
-                    Modify
-                  </button>
-                </div>
-
-                {showModify && (
-                  <div style={{ marginTop: '20px' }}>
-                    <h4>Modify Offer</h4>
-
-                    <label htmlFor="modifiedAmount">
-                      New offer amount ($)
-                    </label>
-
-                    <input
-                      id="modifiedAmount"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      max={
-                        sessionConfig?.max_budget ??
-                        maxBudget
-                      }
-                      value={modifiedAmount}
-                      onChange={(event) =>
-                        setModifiedAmount(
-                          event.target.value
-                        )
-                      }
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        submitApproval('MODIFY')
-                      }
-                      disabled={approvalLoading}
-                    >
-                      {approvalLoading
-                        ? 'Processing...'
-                        : 'Confirm Modified Offer'}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
-          {status === 'ACTIVE' && (
-            <div>
-              <h3>Active Negotiation</h3>
-
-              {activeMode === 'AUTONOMOUS' && (
-                <p>
-                  Autonomous mode is active.
-                  AI-generated offers are approved
-                  automatically within your limits.
-                  You still share the offer with the seller
-                  and enter the seller's response manually.
-                </p>
-              )}
-
-              {lastApprovedAmount !== null && (
-                <p>
-                  <strong>
-                    Last approved offer:
-                  </strong>{' '}
-                  {formatPrice(lastApprovedAmount)}
-                </p>
-              )}
-
-              {latestBuyerMessage && (
-                <div>
-                  <h4>
-                    Last Approved Buyer Message
-                  </h4>
-
-                  <p>
-                    {latestBuyerMessage.content}
-                  </p>
-                </div>
-              )}
-
-              <p>
-                Share your approved offer with the seller
-                manually. Then enter the seller's response
-                below.
-              </p>
-
-              <h3>Seller's Response</h3>
-
-              <label htmlFor="sellerMessage">
-                Enter the seller's message
-              </label>
-
-              <textarea
-                id="sellerMessage"
-                rows={5}
-                value={sellerMessage}
-                onChange={(event) =>
-                  setSellerMessage(event.target.value)
-                }
-                placeholder="e.g. I can't accept $300, but I could sell it for $450."
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  maxWidth: '600px',
-                  boxSizing: 'border-box',
-                  padding: '12px',
-                  marginTop: '10px',
-                  marginBottom: '16px',
-                }}
-              />
-
-              <button
-                type="button"
-                onClick={submitSellerResponse}
-                disabled={
-                  sellerLoading ||
-                  !sellerMessage.trim()
-                }
-              >
-                {sellerLoading
-                  ? 'Processing Seller Response...'
-                  : 'Process Seller Response'}
-              </button>
-
-              {sellerOutcome?.outcome ===
-                'NEEDS_CONFIRMATION' && (
-                <div>
-                  <h4>Clarification Required</h4>
-
-                  <p>
-                    {sellerOutcome.message ||
-                      'Ask the seller to confirm the exact price.'}
-                  </p>
-
-                  {sellerOutcome.reason && (
-                    <p>{sellerOutcome.reason}</p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {status === 'PENDING_FINAL_APPROVAL' && (
-            <div>
-              <h3>
-                Final Buyer Approval Required
-              </h3>
-
-              <p>
-                The seller has accepted your offer.
-                Please review the agreed amount
-                before confirming.
-              </p>
-
-              {lastApprovedAmount !== null && (
-                <p>
-                  <strong>Agreed amount:</strong>{' '}
-                  {formatPrice(lastApprovedAmount)}
-                </p>
-              )}
-
-              <p>
-                Confirming records the agreement locally.
-                No payment, purchase, or external transaction
-                will be executed.
-              </p>
-
+        ) : (
+          <div className="history-list">
+            {history.map((message, index) => (
               <div
-                style={{
-                  display: 'flex',
-                  gap: '10px',
-                  flexWrap: 'wrap',
-                  marginTop: '16px',
-                }}
+                className={`history-message ${message.role}`}
+                key={index}
               >
-                <button
-                  type="button"
-                  onClick={() =>
-                    submitFinalApproval('CONFIRM')
-                  }
-                  disabled={finalApprovalLoading}
-                >
-                  {finalApprovalLoading
-                    ? 'Processing...'
-                    : 'Confirm Agreement'}
-                </button>
+                <div className="history-avatar">
+                  {message.role === 'buyer'
+                    ? 'B'
+                    : message.role === 'seller'
+                      ? 'S'
+                      : 'AI'}
+                </div>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    submitFinalApproval('REJECT')
-                  }
-                  disabled={finalApprovalLoading}
-                >
-                  Reject Agreement
-                </button>
-              </div>
-            </div>
-          )}
-
-          {status === 'COMPLETED' && (
-            <div>
-              <h3>Negotiation Completed</h3>
-
-              <p>
-                The buyer has confirmed the agreement.
-              </p>
-
-              {lastApprovedAmount !== null && (
-                <p>
-                  <strong>Agreed amount:</strong>{' '}
-                  {formatPrice(lastApprovedAmount)}
-                </p>
-              )}
-
-              <p>
-                This outcome was recorded locally.
-                No payment or external transaction
-                was executed.
-              </p>
-            </div>
-          )}
-
-          {status === 'CANCELLED' && (
-            <div>
-              <h3>Negotiation Cancelled</h3>
-
-              <p>
-                The negotiation has ended.
-              </p>
-            </div>
-          )}
-
-          {history.length > 0 && (
-            <div>
-              <h3>Negotiation History</h3>
-
-              {history.map((message, index) => (
-                <div
-                  key={index}
-                  style={{
-                    border: '1px solid #ddd',
-                    borderRadius: '8px',
-                    padding: '12px',
-                    marginBottom: '10px',
-                  }}
-                >
+                <div>
                   <strong>
                     {message.role === 'buyer'
                       ? 'Buyer'
@@ -1143,11 +1262,17 @@ function App() {
 
                   <p>{message.content}</p>
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <footer className="dashboard-footer">
+        NegotiateAI · AI-assisted negotiations ·
+        Offers are recorded locally,
+        not sent automatically
+      </footer>
     </main>
   )
 }
