@@ -6,6 +6,7 @@ import re
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import ValidationError
 
 from backend.negotiation import (
     NegotiationConfig,
@@ -47,55 +48,63 @@ MANDATORY RULES:
 
 
 def _request_ai(messages, max_tokens=1000):
-    """Call the configured Meta model through Baseten."""
+    """Call Meta through Baseten, retrying empty responses once."""
 
-    response = client.chat.completions.create(
-        model=os.getenv("BASETEN_MODEL"),
-        messages=messages,
-        max_tokens=max_tokens,
-    )
-
-    if not response.choices:
-        raise ValueError("AI returned no choices.")
-
-    choice = response.choices[0]
-    content = choice.message.content
-
-    usage = response.usage
-
-    if usage is not None:
-        logger.info(
-            "AI token usage: prompt=%s, completion=%s, total=%s",
-            usage.prompt_tokens,
-            usage.completion_tokens,
-            usage.total_tokens,
+    for attempt in range(2):
+        response = client.chat.completions.create(
+            model=os.getenv("BASETEN_MODEL"),
+            messages=messages,
+            max_tokens=max_tokens,
         )
 
-        details = getattr(
-            usage,
-            "completion_tokens_details",
-            None,
-        )
+        if not response.choices:
+            logger.warning(
+                "AI returned no choices. Attempt %s/2",
+                attempt + 1,
+            )
+            continue
 
-        if details is not None:
+        choice = response.choices[0]
+        content = choice.message.content
+        usage = response.usage
+
+        if usage is not None:
             logger.info(
-                "AI reasoning tokens: %s",
-                getattr(details, "reasoning_tokens", None),
+                "AI token usage: prompt=%s, completion=%s, total=%s",
+                usage.prompt_tokens,
+                usage.completion_tokens,
+                usage.total_tokens,
             )
 
-    logger.info(
-        "AI finish reason: %s",
-        choice.finish_reason,
-    )
+            details = getattr(
+                usage,
+                "completion_tokens_details",
+                None,
+            )
 
-    if not content or not content.strip():
-        logger.warning(
-            "Empty AI response. Finish reason: %s",
+            if details is not None:
+                logger.info(
+                    "AI reasoning tokens: %s",
+                    getattr(details, "reasoning_tokens", None),
+                )
+
+        logger.info(
+            "AI finish reason: %s",
             choice.finish_reason,
         )
-        raise ValueError("AI returned an empty response.")
 
-    return content.strip()
+        if content and content.strip():
+            return content.strip()
+
+        logger.warning(
+            "Empty AI response. Attempt %s/2. Finish reason: %s",
+            attempt + 1,
+            choice.finish_reason,
+        )
+
+    raise ValueError(
+        "AI returned an empty response after two attempts."
+    )
 
 
 def _parse_json(content):
@@ -310,11 +319,8 @@ def generate_counteroffer_with_memory(
     """
 
     config = session.config
-
     previous_amount = session.last_approved_amount
 
-    # Keep the full conversation history without
-    # duplicating the latest buyer message.
     history = "\n".join(
         f"{message.role}: {message.content}"
         for message in session.messages
@@ -361,9 +367,7 @@ Do not mention other prices. No markdown.
         },
     ]
 
-    # Maximum two AI calls: original plus one retry.
     for attempt in range(2):
-
         content = _request_ai(
             messages,
             max_tokens=1200,
@@ -406,3 +410,4 @@ Do not mention other prices. No markdown.
     raise ValueError(
         "AI generated a repeated offer after retry."
     )
+
