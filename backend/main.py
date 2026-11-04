@@ -17,6 +17,9 @@ from backend.negotiation import (
 from backend.outcome import detect_outcome
 from backend.session import NegotiationSession
 
+from pathlib import Path
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -559,3 +562,16 @@ def final_approval(
         "agreed_amount": session.last_approved_amount,
         "message": message,
     }
+# Serve the React production build
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+if FRONTEND_DIST.is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=FRONTEND_DIST / "assets"),
+        name="assets",
+    )
+
+    @app.get("/", include_in_schema=False)
+    async def serve_frontend():
+        return FileResponse(FRONTEND_DIST / "index.html")
