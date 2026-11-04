@@ -370,7 +370,7 @@ Do not mention other prices. No markdown.
     for attempt in range(2):
         content = _request_ai(
             messages,
-            max_tokens=1200,
+            max_tokens=3000,
         )
 
         offer = _build_offer(config, content)
