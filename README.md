@@ -1,7 +1,8 @@
-
 # NegotiateAI
 
 **An AI-powered negotiation agent built with Meta Muse Spark Open for the Meta Global AI Developer Hackathon 2026.**
+
+[**Live Application**](https://negotiate-ai-girq.onrender.com) | [**Watch Demo Video**](https://youtu.be/V68e6RsrSpc) | [**GitHub Repository**](https://github.com/aleksandrasremcev/negotiate-ai)
 
 NegotiateAI helps buyers negotiate prices through structured, multi-round conversations while keeping users in control of important decisions.
 
@@ -44,13 +45,13 @@ The application then guides the negotiation through a controlled workflow.
 7. The offer is approved manually or automatically, depending on the selected mode.
 8. If the seller accepts, the buyer must explicitly confirm the final agreement.
 
-**Important:** NegotiateAI does not contact external sellers, execute payments, or complete real-world purchases. Agreements are recorded locally within the application.
+**Important:** NegotiateAI does not contact external sellers, execute payments, or complete real-world purchases. Agreements are recorded within the application's negotiation session.
 
 ## Meta AI Integration
 
 NegotiateAI uses **Meta Muse Spark Open**, an open-weight model accessed through Baseten's OpenAI-compatible inference API.
 
-Model identifier:
+**Model identifier:**
 
 `meta-models/muse-spark-open-1026`
 
@@ -69,6 +70,7 @@ This separation between AI-generated proposals and deterministic enforcement is 
 | API Integration | OpenAI-compatible Python SDK |
 | Data Validation | Pydantic |
 | Testing | Pytest |
+| Deployment | Render |
 
 ## Architecture
 
@@ -89,6 +91,22 @@ FastAPI Backend
       +-- Human Approval Workflow
 ```
 
+The React frontend communicates with the FastAPI backend through REST API endpoints.
+
+The backend manages negotiation sessions, processes seller responses, calls Meta Muse Spark Open for counteroffer generation, validates proposed offers, and enforces approval requirements.
+
+For deployment, FastAPI also serves the compiled React frontend.
+
+## Live Deployment
+
+**Try NegotiateAI:** https://negotiate-ai-girq.onrender.com
+
+NegotiateAI is deployed on Render using a single web service that hosts the FastAPI backend and serves the React frontend.
+
+The deployment uses environment variables to configure access to the Baseten inference API.
+
+**Note:** The application runs on Render's free instance, which may enter sleep mode after inactivity. The first request may take approximately a minute or longer while the service starts.
+
 ## Running Locally
 
 ### Backend
@@ -100,7 +118,9 @@ git clone https://github.com/aleksandrasremcev/negotiate-ai.git
 cd negotiate-ai
 ```
 
-Create and activate a Python virtual environment, then install dependencies:
+Create and activate a Python virtual environment.
+
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
@@ -119,58 +139,4 @@ Never commit API keys or `.env` files to version control.
 Start the backend:
 
 ```bash
-python -m uvicorn backend.main:app --host 127.0.0.1 --port 8001
-```
-
-### Frontend
-
-In a separate terminal:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open the local URL displayed by Vite.
-
-## Testing
-
-Run the automated backend tests without the optional live-model scripts:
-
-```bash
-python -m pytest -q --ignore=test_agent.py --ignore=test_multi_round.py
-```
-
-The latest local verification completed **29 passing tests**.
-
-Build the frontend:
-
-```bash
-cd frontend
-npm run build
-```
-
-## Current Limitations
-
-- Negotiation sessions are stored in memory and are lost when the backend restarts.
-- Seller responses are entered manually; no external marketplace or messaging integration is implemented.
-- AI inference requires access to the configured Baseten model.
-- The application is a hackathon prototype, not a production transaction platform.
-
-## Hackathon
-
-**Event:** Meta Global AI Developer Hackathon 2026
-
-**Track:** Indie Developer
-
-**Project:** NegotiateAI
-
-**Built during:** October 26 – November 4, 2026
-
-**Developer:** Aleksandra Sremcev
-
-## Demo
-
-A demonstration video will be added as part of the hackathon submission.
-
+python -m uvicorn backend.main:app
